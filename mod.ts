@@ -1,3 +1,34 @@
+/**
+ * Express Server for "@panth977/routes";
+ * 
+ * @module
+ * 
+ * @example
+ * ```ts
+ * import createHttpError from "http-errors";
+ * import { ROUTES } from "@panth977/routes";
+ * import { serve, type onError } from "@panth977/routes-express";
+ * import * as routes_ from './routes/index.ts';
+ * import express from 'express';
+ * 
+ * 
+ * function onError(context, build, error) {
+ *   if (createHttpError.isHttpError(error)) return error;
+ *   if (context) {
+ *     context.log('Request Error:', error);
+ *   } else {
+ *     console.error('Request Error:', error);
+ *   }
+ *   return createHttpError.InternalServerError('Something went wrong!');
+ * } satisfies onError;
+ * 
+ * const app = express();
+ * const routes = ROUTES.getEndpointsFromBundle(routes_); // strong type will be lost
+ * app.use(serve(routes, onError));
+ * app.listen(8080, () => console.log('Listing...'));
+ * ```
+ */
+
 import { ROUTES } from "@panth977/routes";
 import {
   Router,
