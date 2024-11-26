@@ -1,6 +1,6 @@
 {
   "name": "@panth977/routes-express",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "exports": "./mod.ts",
   "tasks": {
@@ -13,9 +13,9 @@
     }
   },
   "imports": {
-    "@panth977/functions": "jsr:@panth977/functions@^0.2.0",
-    "@panth977/routes": "jsr:@panth977/routes@^0.2.0",
-    "express": "npm:express@^4.17.17",
-    "http-errors": "npm:http-errors@^2.0.0"
+    "@panth977/functions": "jsr:@panth977/functions@^0.2.x",
+    "@panth977/routes": "jsr:@panth977/routes@^0.2.x",
+    "express": "npm:express@^4.17.x",
+    "http-errors": "npm:http-errors@^2.0.x"
   }
 }
