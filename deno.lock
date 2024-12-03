@@ -2,7 +2,7 @@
   "version": "4",
   "specifiers": {
     "jsr:@panth977/functions@~0.2.5": "0.2.5",
-    "jsr:@panth977/routes@~0.2.3": "0.2.3",
+    "jsr:@panth977/routes@~0.2.4": "0.2.4",
     "npm:crypto@1": "1.0.1",
     "npm:express@^4.17.0": "4.21.1",
     "npm:zod-openapi@4": "4.0.0_zod@3.23.8",
@@ -18,8 +18,8 @@
         "npm:crypto"
       ]
     },
-    "@panth977/routes@0.2.3": {
-      "integrity": "4694831e070f720998529f0ae583dc8044d8a723e3beeb963ff55a4e316b9540",
+    "@panth977/routes@0.2.4": {
+      "integrity": "f66ab8311ab279f53ff63f4471053eb20a841f8e8bfb5df12f7066e5e8316164",
       "dependencies": [
         "jsr:@panth977/functions",
         "npm:zod",
@@ -404,7 +404,7 @@
   "workspace": {
     "dependencies": [
       "jsr:@panth977/functions@~0.2.5",
-      "jsr:@panth977/routes@~0.2.3",
+      "jsr:@panth977/routes@~0.2.4",
       "npm:express@^4.17.0"
     ]
   }
