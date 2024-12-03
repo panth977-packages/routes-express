@@ -54,7 +54,10 @@ export function pathParser(path: string): string {
   return path.replace(/{([^}]+)}/g, ":$1");
 }
 
-export const ExpressStateKey = {
+export const ExpressStateKey: {
+  readonly key: symbol;
+  readonly _type: { readonly req: Request; readonly res: Response };
+} = {
   key: Symbol("Express"),
   _type: {} as { req: Request; res: Response },
 } as const;
@@ -75,13 +78,13 @@ export type onError = {
 /**
  * create your route lifecycle from "@panth977/routes" to "express" handler function
  * {@link ExpressStateKey} is used to get Express Req, Res
- * 
+ *
  * @example
  * ```ts
- * const lifecycle = createExpressLifeCycle(onError);
+ * const lifecycle = createLifeCycle(onError);
  * ```
  */
-export function createExpressLifeCycle(onError: onError): ROUTES.LifeCycle {
+export function createLifeCycle(onError: onError): ROUTES.LifeCycle {
   return {
     onStatusChange({ status, context, build }) {
       if (context.getState(ClosedStateKey)) return;
@@ -175,16 +178,23 @@ export function createExpressLifeCycle(onError: onError): ROUTES.LifeCycle {
  *
  * @example
  * ```ts
- * app.get('/profile', buildHandler({build: getProfileRoute, lc: lifecycle}));
+ * app.get('/profile', defaultBuildHandler({build: getProfileRoute, lc: lifecycle}));
  * ```
  */
-export function buildHandler({
+export function defaultBuildHandler({
   build,
   lc,
+  onError,
 }: {
   build: ROUTES.Http.Build | ROUTES.Sse.Build;
-  lc: ROUTES.LifeCycle;
+  lc?: ROUTES.LifeCycle;
+  onError?: onError;
 }): RequestHandler {
+  if (lc && onError) {
+    throw new Error("Pass either of lc or onError function");
+  }
+  if (onError) lc = createLifeCycle(onError);
+  if (!lc) throw new Error("Unimplemented!");
   return async function (req: Request, res: Response) {
     const context = FUNCTIONS.DefaultBuildContext(req.contextId || null);
     context.setState({
@@ -213,13 +223,29 @@ export function buildHandler({
  *
  * @example
  * ```ts
- * app.use('/v1', serve(bundledRoutes, onError));
+ * const lifecycle = createLifeCycle(onError);
+ * app.use('/v1', serve({bundle: bundledRoutes, buildHandler: (build) => defaultBuildHandler({build, lc: lifecycle})}));
  * ```
  */
-export function serve(
-  bundle: Record<string, ROUTES.Http.Build | ROUTES.Sse.Build>,
-  buildHandler: (build: ROUTES.Http.Build | ROUTES.Sse.Build) => RequestHandler
-): Router {
+export function serve({
+  buildHandler,
+  bundle,
+  onError,
+}: {
+  bundle: Record<string, ROUTES.Http.Build | ROUTES.Sse.Build>;
+  buildHandler?: (
+    build: ROUTES.Http.Build | ROUTES.Sse.Build
+  ) => RequestHandler;
+  onError?: onError;
+}): Router {
+  if (buildHandler && onError) {
+    throw new Error("Pass either of buildHandler or onError function");
+  }
+  if (onError) {
+    const lc = createLifeCycle(onError);
+    buildHandler = (build) => defaultBuildHandler({ build, lc });
+  }
+  if (!buildHandler) throw new Error("Unimplemented!");
   const router = Router();
   for (const build of Object.values(bundle)) {
     for (const path of build.path) {
