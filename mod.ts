@@ -68,11 +68,11 @@ const ClosedStateKey = {
 };
 
 export type onError = {
-  (
-    context: FUNCTIONS.Context,
-    build: ROUTES.Http.Build | ROUTES.Sse.Build | ROUTES.Middleware.Build,
-    error: unknown
-  ): { status: number; headers: Record<string, string | string[]>; body: any };
+  (arg: {
+    context: FUNCTIONS.Context;
+    build: ROUTES.Http.Build | ROUTES.Sse.Build | ROUTES.Middleware.Build;
+    error: unknown;
+  }): { status: number; headers: Record<string, string | string[]>; body: any };
 };
 
 /**
@@ -121,7 +121,7 @@ export function createLifeCycle(onError: onError): ROUTES.LifeCycle {
       if (context.getState(ClosedStateKey)) return;
       const { res } = context.getState(ExpressStateKey);
       if (output === null) {
-        const err = onError(context, build, error);
+        const err = onError({ context, build, error });
         context.log("⚠️", build.getRef(), err);
         if (build.endpoint === "sse") return;
         for (const key in err.headers) res.setHeader(key, err.headers[key]);
