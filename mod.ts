@@ -54,18 +54,18 @@ export function pathParser(path: string): string {
   return path.replace(/{([^}]+)}/g, ":$1");
 }
 
-export const ExpressStateKey: {
-  readonly key: symbol;
-  readonly _type: { readonly req: Request; readonly res: Response };
-} = {
-  key: Symbol("Express"),
-  _type: {} as { req: Request; res: Response },
-} as const;
+export const ExpressStateKey: FUNCTIONS.ContextStateKey<{
+  req: Request;
+  res: Response;
+}> = FUNCTIONS.CreateContextStateKey<{ req: Request; res: Response }>({
+  label: "ExpressReqRes",
+  local: false,
+});
 
-const ClosedStateKey = {
-  key: Symbol(),
-  _type: {} as boolean,
-};
+const ClosedStateKey = FUNCTIONS.CreateContextStateKey<boolean>({
+  label: "ReqClosed",
+  local: false,
+});
 
 export type onError = {
   (arg: {
@@ -87,18 +87,14 @@ export type onError = {
 export function createLifeCycle(onError: onError): ROUTES.LifeCycle {
   return {
     onStatusChange({ status, context, build }) {
-      if (context.getState(ClosedStateKey)) return;
-      const { req, res } = context.getState(ExpressStateKey);
+      if (context.useState(ClosedStateKey).get()) return;
+      const { req, res } = context.useState(ExpressStateKey).get();
       if (status === "start") {
         context.log("🔛", req.url);
         req.contextId = context.id;
         res.on("finish", () => context.dispose());
         res.on("close", () => {
-          context.setState({
-            key: ClosedStateKey.key,
-            cascade: true,
-            val: true,
-          });
+          context.useState(ClosedStateKey).set(true);
           context.log("🔚", build.getRef());
         });
       } else if (status === "complete") {
@@ -106,8 +102,8 @@ export function createLifeCycle(onError: onError): ROUTES.LifeCycle {
       }
     },
     onExecution({ context, build }) {
-      if (context.getState(ClosedStateKey)) return;
-      const { res } = context.getState(ExpressStateKey);
+      if (context.useState(ClosedStateKey).get()) return;
+      const { res } = context.useState(ExpressStateKey).get();
       context.log("🔄", build.getRef());
       if (build.endpoint === "sse") {
         res.setHeader("Cache-Control", "no-cache");
@@ -118,8 +114,8 @@ export function createLifeCycle(onError: onError): ROUTES.LifeCycle {
       }
     },
     onResponse({ context, build, res: output, err: error }) {
-      if (context.getState(ClosedStateKey)) return;
-      const { res } = context.getState(ExpressStateKey);
+      if (context.useState(ClosedStateKey).get()) return;
+      const { res } = context.useState(ExpressStateKey).get();
       if (output === null) {
         const err = onError({ context, build, error });
         context.log("⚠️", build.getRef(), err);
@@ -162,8 +158,8 @@ export function createLifeCycle(onError: onError): ROUTES.LifeCycle {
       }
     },
     onComplete({ context, build }) {
-      if (context.getState(ClosedStateKey)) return;
-      const { res } = context.getState(ExpressStateKey);
+      if (context.useState(ClosedStateKey).get()) return;
+      const { res } = context.useState(ExpressStateKey).get();
       if (build.endpoint === "sse") {
         context.log("✅", build.getRef());
         res.end();
@@ -197,12 +193,8 @@ export function defaultBuildHandler({
   if (!lc) throw new Error("Unimplemented!");
   return async function (req: Request, res: Response) {
     const context = FUNCTIONS.DefaultBuildContext(req.contextId || null);
-    context.setState({
-      key: ExpressStateKey.key,
-      cascade: true,
-      val: { req, res },
-    });
-    context.setState({ key: ClosedStateKey.key, cascade: true, val: false });
+    context.useState(ExpressStateKey).set({ req, res });
+    context.useState(ClosedStateKey).set(false);
     await ROUTES.execute({
       context,
       build,
