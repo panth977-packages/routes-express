@@ -97,7 +97,7 @@ export function createLifeCycle(onError: onError): ROUTES.LifeCycle {
           context.log("🔚", build.getRef());
         });
       } else if (status === "complete") {
-        context.log("🔚", req.url);
+        context.log("🔚", req.method, req.url);
       }
     },
     onExecution({ context, build }) {
