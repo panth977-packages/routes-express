@@ -57,14 +57,14 @@ export function pathParser(path: string): string {
 export const ExpressStateKey: FUNCTIONS.ContextStateKey<{
   req: Request;
   res: Response;
-}> = FUNCTIONS.CreateContextStateKey<{ req: Request; res: Response }>({
+}> = FUNCTIONS.DefaultContextState.CreateKey<{ req: Request; res: Response }>({
   label: "ExpressReqRes",
-  local: false,
+  scope: "global",
 });
 
-const ClosedStateKey = FUNCTIONS.CreateContextStateKey<boolean>({
+const ClosedStateKey = FUNCTIONS.DefaultContextState.CreateKey<boolean>({
   label: "ReqClosed",
-  local: false,
+  scope: "global",
 });
 
 export type onError = {
@@ -91,8 +91,7 @@ export function createLifeCycle(onError: onError): ROUTES.LifeCycle {
       const { req, res } = context.useState(ExpressStateKey).get();
       if (status === "start") {
         context.log("🔛", req.url);
-        req.contextId = context.id;
-        res.on("finish", () => context.dispose());
+        req.context = context;
         res.on("close", () => {
           context.useState(ClosedStateKey).set(true);
           context.log("🔚", build.getRef());
@@ -192,18 +191,38 @@ export function defaultBuildHandler({
   if (onError) lc = createLifeCycle(onError);
   if (!lc) throw new Error("Unimplemented!");
   return async function (req: Request, res: Response) {
-    const context = FUNCTIONS.DefaultBuildContext(req.contextId || null);
-    context.useState(ExpressStateKey).set({ req, res });
-    context.useState(ClosedStateKey).set(false);
-    await ROUTES.execute({
-      context,
-      build,
-      body: req.body,
-      headers: req.headers,
-      path: req.params,
-      query: req.query,
-      lc,
-    });
+    const context = req.context;
+    if (context) {
+      context.useState(ExpressStateKey).set({ req, res });
+      context.useState(ClosedStateKey).set(false);
+      await ROUTES.execute({
+        context,
+        build,
+        body: req.body,
+        headers: req.headers,
+        path: req.params,
+        query: req.query,
+        lc,
+      });
+    } else {
+      await FUNCTIONS.DefaultContext.Builder.forTask(
+        null,
+        async function (context, done) {
+          res.on("finish", done);
+          context.useState(ExpressStateKey).set({ req, res });
+          context.useState(ClosedStateKey).set(false);
+          await ROUTES.execute({
+            context,
+            build,
+            body: req.body,
+            headers: req.headers,
+            path: req.params,
+            query: req.query,
+            lc,
+          });
+        }
+      );
+    }
   };
 }
 
