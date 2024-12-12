@@ -54,13 +54,13 @@ export function pathParser(path: string): string {
   return path.replace(/{([^}]+)}/g, ":$1");
 }
 
-export const ExpressStateKey: FUNCTIONS.ContextStateKey<{
-  req: Request;
-  res: Response;
-}> = FUNCTIONS.DefaultContextState.CreateKey<{ req: Request; res: Response }>({
-  label: "ExpressReqRes",
-  scope: "global",
-});
+export type Opt = { req: Request; res: Response };
+
+export const ExpressStateKey: FUNCTIONS.ContextStateKey<Opt> =
+  FUNCTIONS.DefaultContextState.CreateKey({
+    label: "ExpressReqRes",
+    scope: "global",
+  });
 
 const ClosedStateKey = FUNCTIONS.DefaultContextState.CreateKey<boolean>({
   label: "ReqClosed",
@@ -84,8 +84,21 @@ export type onError = {
  * const lifecycle = createLifeCycle(onError);
  * ```
  */
-export function createLifeCycle(onError: onError): ROUTES.LifeCycle {
+export function createLifeCycle(
+  onError: onError
+): ROUTES.LifeCycle<Opt & { done?: VoidFunction }> {
   return {
+    init(context, { req, res, done }) {
+      if (done) res.on("finish", done);
+      context.useState(ExpressStateKey).set({ req, res });
+      context.useState(ClosedStateKey).set(false);
+      return Promise.resolve({
+        body: req.body,
+        headers: req.headers,
+        path: req.params,
+        query: req.query,
+      });
+    },
     onStatusChange({ status, context, build }) {
       if (context.useState(ClosedStateKey).get()) return;
       const { req, res } = context.useState(ExpressStateKey).get();
@@ -182,7 +195,7 @@ export function defaultBuildHandler({
   onError,
 }: {
   build: ROUTES.Http.Build | ROUTES.Sse.Build;
-  lc?: ROUTES.LifeCycle;
+  lc?: ROUTES.LifeCycle<Opt & { done?: VoidFunction }>;
   onError?: onError;
 }): RequestHandler {
   if (lc && onError) {
@@ -193,33 +206,12 @@ export function defaultBuildHandler({
   return async function (req: Request, res: Response) {
     const context = req.context;
     if (context) {
-      context.useState(ExpressStateKey).set({ req, res });
-      context.useState(ClosedStateKey).set(false);
-      await ROUTES.execute({
-        context,
-        build,
-        body: req.body,
-        headers: req.headers,
-        path: req.params,
-        query: req.query,
-        lc,
-      });
+      await ROUTES.execute({ context, build, opt: { req, res }, lc });
     } else {
       await FUNCTIONS.DefaultContext.Builder.forTask(
         null,
-        async function (context, done) {
-          res.on("finish", done);
-          context.useState(ExpressStateKey).set({ req, res });
-          context.useState(ClosedStateKey).set(false);
-          await ROUTES.execute({
-            context,
-            build,
-            body: req.body,
-            headers: req.headers,
-            path: req.params,
-            query: req.query,
-            lc,
-          });
+        function (context, done) {
+          return ROUTES.execute({ context, build, opt: { req, res, done }, lc });
         }
       );
     }
