@@ -269,7 +269,9 @@ export function serve({
   }
   if (!buildHandler) throw new Error("Unimplemented!");
   const router = Router();
-  for (const build of Object.values(bundle)) {
+  for (const build of Object.values(bundle).sort(
+    (x, y) => x.docsOrder - y.docsOrder
+  )) {
     for (const path of build.path) {
       for (const method of build.method) {
         router[method](
