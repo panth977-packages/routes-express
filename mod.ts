@@ -37,6 +37,7 @@ import {
   type RequestHandler,
 } from "express";
 import { FUNCTIONS } from "@panth977/functions";
+import { z } from "npm:zod@^3.23.0";
 
 /**
  * converts "@panth977/routes" accepted routes path to "express" accepted routes path.
@@ -50,7 +51,20 @@ import { FUNCTIONS } from "@panth977/functions";
  * pathParser('/users/{userId}/devices/{deviceId}') // '/users/:userId/devices/:deviceId';
  * ```
  */
-export function pathParser(path: string): string {
+export function pathParser(path: string, schema?: z.AnyZodObject): string {
+  if (schema) {
+    return path.replace(/{([^}]+)}/g, (_, x) => {
+      const s = schema.shape[x];
+      if (s instanceof z.ZodEnum) {
+        const enums = Object.keys(s.Enum).join("|");
+        return `:${x}(${enums})`;
+      }
+      if (s instanceof z.ZodNumber) {
+        return `:${x}(\\d+)`;
+      }
+      return `:${x}`;
+    });
+  }
   return path.replace(/{([^}]+)}/g, ":$1");
 }
 
@@ -211,7 +225,12 @@ export function defaultBuildHandler({
       await FUNCTIONS.DefaultContext.Builder.forTask(
         null,
         function (context, done) {
-          return ROUTES.execute({ context, build, opt: { req, res, done }, lc });
+          return ROUTES.execute({
+            context,
+            build,
+            opt: { req, res, done },
+            lc,
+          });
         }
       );
     }
@@ -253,7 +272,10 @@ export function serve({
   for (const build of Object.values(bundle)) {
     for (const path of build.path) {
       for (const method of build.method) {
-        router[method](pathParser(path), buildHandler(build));
+        router[method](
+          pathParser(path, build.request.shape.path),
+          buildHandler(build)
+        );
       }
     }
   }
