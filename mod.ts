@@ -80,6 +80,12 @@ const ClosedStateKey = FUNCTIONS.DefaultContextState.CreateKey<boolean>({
   label: "ReqClosed",
   scope: "global",
 });
+const TimeStateKey = FUNCTIONS.DefaultContextState.CreateKey<
+  Record<string, number>
+>({
+  label: "Time",
+  scope: "global",
+});
 
 export type onError = {
   (arg: {
@@ -106,6 +112,14 @@ export function createLifeCycle(
       if (done) res.on("finish", done);
       context.useState(ExpressStateKey).set({ req, res });
       context.useState(ClosedStateKey).set(false);
+      context.useState(TimeStateKey).set({});
+      context.log("🔛", req.method, req.url);
+      const initTs = Date.now();
+      res.on("close", () => {
+        context.useState(ClosedStateKey).set(true);
+        context.log(`(${Date.now() - initTs} ms)`, "🔚", req.method, req.url);
+      });
+      req.context = context;
       return Promise.resolve({
         body: req.body,
         headers: req.headers,
@@ -113,24 +127,11 @@ export function createLifeCycle(
         query: req.query,
       });
     },
-    onStatusChange({ status, context, build }) {
-      if (context.useState(ClosedStateKey).get()) return;
-      const { req, res } = context.useState(ExpressStateKey).get();
-      if (status === "start") {
-        context.log("🔛", req.method, req.url);
-        req.context = context;
-        res.on("close", () => {
-          context.useState(ClosedStateKey).set(true);
-          context.log("🔚", build.getRef());
-        });
-      } else if (status === "complete") {
-        context.log("🔚", req.method, req.url);
-      }
-    },
     onExecution({ context, build }) {
       if (context.useState(ClosedStateKey).get()) return;
       const { res } = context.useState(ExpressStateKey).get();
       context.log("🔄", build.getRef());
+      context.useState(TimeStateKey).get()[build.getRef()] = Date.now();
       if (build.endpoint === "sse") {
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Content-Type", "text/event-stream");
@@ -153,7 +154,13 @@ export function createLifeCycle(
       if (typeof output === "string") {
         res.write(`data: ${JSON.stringify(output)}\n\n`);
       } else {
-        context.log("✅", build.getRef());
+        context.log(
+          `(${
+            Date.now() - context.useState(TimeStateKey).get()[build.getRef()]
+          } ms)`,
+          "✅",
+          build.getRef()
+        );
         if (
           "headers" in output &&
           typeof output.headers === "object" &&
@@ -187,7 +194,13 @@ export function createLifeCycle(
       if (context.useState(ClosedStateKey).get()) return;
       const { res } = context.useState(ExpressStateKey).get();
       if (build.endpoint === "sse") {
-        context.log("✅", build.getRef());
+        context.log(
+          `(${
+            Date.now() - context.useState(TimeStateKey).get()[build.getRef()]
+          } ms)`,
+          "✅",
+          build.getRef()
+        );
         res.end();
       }
     },
