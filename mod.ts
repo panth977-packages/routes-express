@@ -117,7 +117,7 @@ export function createLifeCycle(
       if (context.useState(ClosedStateKey).get()) return;
       const { req, res } = context.useState(ExpressStateKey).get();
       if (status === "start") {
-        context.log("🔛", req.url);
+        context.log("🔛", req.method, req.url);
         req.context = context;
         res.on("close", () => {
           context.useState(ClosedStateKey).set(true);
