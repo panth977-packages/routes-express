@@ -29,7 +29,7 @@
  * ```
  */
 
-import { ROUTES } from "@panth977/routes";
+import type { ROUTES } from "@panth977/routes";
 import {
   Router,
   type Request,
@@ -37,7 +37,7 @@ import {
   type RequestHandler,
 } from "express";
 import { FUNCTIONS } from "@panth977/functions";
-import { z } from "npm:zod@^3.23.0";
+import { z } from "npm:zod@^3.23.x";
 
 /**
  * converts "@panth977/routes" accepted routes path to "express" accepted routes path.
@@ -51,7 +51,7 @@ import { z } from "npm:zod@^3.23.0";
  * pathParser('/users/{userId}/devices/{deviceId}') // '/users/:userId/devices/:deviceId';
  * ```
  */
-export function pathParser(path: string, schema?: z.AnyZodObject): string {
+export function pathParser(path: string, schema?: ROUTES.Http.Build['request']['shape']['path']): string {
   if (schema) {
     return path.replace(/{([^}]+)}/g, (_, x) => {
       const s = schema.shape[x];
@@ -76,17 +76,6 @@ export const ExpressStateKey: FUNCTIONS.ContextStateKey<Opt> =
     scope: "global",
   });
 
-const ClosedStateKey = FUNCTIONS.DefaultContextState.CreateKey<boolean>({
-  label: "ReqClosed",
-  scope: "global",
-});
-const TimeStateKey = FUNCTIONS.DefaultContextState.CreateKey<
-  Record<string, number>
->({
-  label: "Time",
-  scope: "global",
-});
-
 export type onError = {
   (arg: {
     context: FUNCTIONS.Context;
@@ -95,116 +84,11 @@ export type onError = {
   }): { status: number; headers: Record<string, string | string[]>; body: any };
 };
 
-/**
- * create your route lifecycle from "@panth977/routes" to "express" handler function
- * {@link ExpressStateKey} is used to get Express Req, Res
- *
- * @example
- * ```ts
- * const lifecycle = createLifeCycle(onError);
- * ```
- */
-export function createLifeCycle(
-  onError: onError
-): ROUTES.LifeCycle<Opt & { done?: VoidFunction }> {
-  return {
-    init(context, { req, res, done }) {
-      if (done) res.on("finish", done);
-      context.useState(ExpressStateKey).set({ req, res });
-      context.useState(ClosedStateKey).set(false);
-      context.useState(TimeStateKey).set({});
-      context.log("🔛", req.method, req.url);
-      const initTs = Date.now();
-      res.on("close", () => {
-        context.useState(ClosedStateKey).set(true);
-        context.log(`(${Date.now() - initTs} ms)`, "🔚", req.method, req.url);
-      });
-      req.context = context;
-      return Promise.resolve({
-        body: req.body,
-        headers: req.headers,
-        path: req.params,
-        query: req.query,
-      });
-    },
-    onExecution({ context, build }) {
-      if (context.useState(ClosedStateKey).get()) return;
-      const { res } = context.useState(ExpressStateKey).get();
-      context.log("🔄", build.getRef());
-      context.useState(TimeStateKey).get()[build.getRef()] = Date.now();
-      if (build.endpoint === "sse") {
-        res.setHeader("Cache-Control", "no-cache");
-        res.setHeader("Content-Type", "text/event-stream");
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Connection", "keep-alive");
-        res.flushHeaders(); // flush the headers to establish SSE with client
-      }
-    },
-    onResponse({ context, build, res: output, err: error }) {
-      if (context.useState(ClosedStateKey).get()) return;
-      const { res } = context.useState(ExpressStateKey).get();
-      if (output === null) {
-        const err = onError({ context, build, error });
-        context.log("⚠️", build.getRef(), err);
-        if (build.endpoint === "sse") return;
-        for (const key in err.headers) res.setHeader(key, err.headers[key]);
-        res.status(err.status).json(err.body);
-        return;
-      }
-      if (typeof output === "string") {
-        res.write(`data: ${JSON.stringify(output)}\n\n`);
-      } else {
-        context.log(
-          `(${
-            Date.now() - context.useState(TimeStateKey).get()[build.getRef()]
-          } ms)`,
-          "✅",
-          build.getRef()
-        );
-        if (
-          "headers" in output &&
-          typeof output.headers === "object" &&
-          output.headers
-        ) {
-          for (const key in output.headers) {
-            res.setHeader(
-              key,
-              output.headers[key as keyof typeof output.headers]
-            );
-          }
-        }
-        if ("body" in output && (output.body ?? undefined) !== undefined) {
-          const contentTypeKey = Object.keys(output.headers ?? {}).find(
-            (x) => x.toLowerCase() === "content-type"
-          );
-          const contentTypeVal =
-            ((output.headers as Record<string, string> | undefined) ?? {})[
-              contentTypeKey ?? ""
-            ] ?? "application/json";
-          res.status(200);
-          if (contentTypeVal.toLowerCase() !== "application/json") {
-            res.send(output.body);
-          } else {
-            res.json(output.body);
-          }
-        }
-      }
-    },
-    onComplete({ context, build }) {
-      if (context.useState(ClosedStateKey).get()) return;
-      const { res } = context.useState(ExpressStateKey).get();
-      if (build.endpoint === "sse") {
-        context.log(
-          `(${
-            Date.now() - context.useState(TimeStateKey).get()[build.getRef()]
-          } ms)`,
-          "✅",
-          build.getRef()
-        );
-        res.end();
-      }
-    },
-  };
+function SettledPromise<T>(promise: Promise<T>) {
+  return promise.then(
+    (data) => ({ success: true, data } as const),
+    (error) => ({ success: false, error } as const)
+  );
 }
 
 /**
@@ -218,35 +102,102 @@ export function createLifeCycle(
  */
 export function defaultBuildHandler({
   build,
-  lc,
   onError,
 }: {
   build: ROUTES.Http.Build | ROUTES.Sse.Build;
-  lc?: ROUTES.LifeCycle<Opt & { done?: VoidFunction }>;
-  onError?: onError;
+  onError: onError;
 }): RequestHandler {
-  if (lc && onError) {
-    throw new Error("Pass either of lc or onError function");
-  }
-  if (onError) lc = createLifeCycle(onError);
-  if (!lc) throw new Error("Unimplemented!");
   return async function (req: Request, res: Response) {
-    const context = req.context;
-    if (context) {
-      await ROUTES.execute({ context, build, opt: { req, res }, lc });
-    } else {
-      await FUNCTIONS.DefaultContext.Builder.forTask(
-        null,
-        function (context, done) {
-          return ROUTES.execute({
-            context,
-            build,
-            opt: { req, res, done },
-            lc,
-          });
-        }
-      );
+    const initTs = Date.now();
+    const [context, done] = await FUNCTIONS.DefaultContext.Builder.createContext(null);
+    function writeHeaders(headers?: Record<string, string | string[]>) {
+      for (const key in headers) {
+        res.setHeader(key, headers[key]);
+      }
     }
+    function OnErrorResponse(error: unknown) {
+      if (closed) return;
+      const err = onError({ context, build, error });
+      context.log("⚠️", build.getRef(), err);
+      writeHeaders(err.headers);
+      res.status(err.status).json(err.body);
+    }
+    let closed = false;
+    const times: Record<string, number> = {};
+    context.log("🔛", req.method, req.url);
+    res.on("close", () => {
+      closed = true;
+      context.log(`(${Date.now() - initTs} ms)`, "🔚", req.method, req.url);
+    });
+    res.on("finish", done);
+    context.useState(ExpressStateKey).set({ req, res });
+    req.context = context;
+    const reqData = Promise.resolve({
+      body: req.body,
+      headers: req.headers,
+      path: req.params,
+      query: req.query,
+    });
+    const middlewares = build.middlewares;
+    for (const build of middlewares) {
+      if (closed) return;
+      context.log("🔄", build.getRef());
+      times[build.getRef()] = Date.now();
+      const p = await SettledPromise(build({ context, ...req }));
+      if (!p.success) return OnErrorResponse(p.error);
+      if (closed) return;
+      writeHeaders(p.data.headers as never);
+    }
+    if (build.endpoint === "http") {
+      if (closed) return;
+      context.log("🔄", build.getRef());
+      times[build.getRef()] = Date.now();
+      const p = await SettledPromise(build({ context, ...req }));
+      if (!p.success) return OnErrorResponse(p.error);
+      if (closed) return;
+      writeHeaders(p.data.headers as never);
+      if (p.data.body == undefined) return res.status(200).send(null);
+      const contentTypeKey = Object.keys(p.data.headers ?? {}).find(
+        (x) => x.toLowerCase() === "content-type"
+      );
+      const contentTypeVal =
+        ((p.data.headers as Record<string, string> | undefined) ?? {})[
+          contentTypeKey ?? ""
+        ] ?? "application/json";
+      if (contentTypeVal.toLowerCase() !== "application/json") {
+        res.status(200).send(p.data.body);
+      } else {
+        res.status(200).json(p.data.body);
+      }
+    } else if (build.endpoint === "sse") {
+      if (closed) return;
+      const { res } = context.useState(ExpressStateKey).get();
+      context.log("🔄", build.getRef());
+      times[build.getRef()] = Date.now();
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders(); // flush the headers to establish SSE with client
+      try {
+        for await (const resData of build({ context, ...reqData })) {
+          if (closed) return;
+          res.write(`data: ${JSON.stringify(resData)}\n\n`);
+        }
+      } catch (error) {
+        if (closed) return;
+        context.log("⚠️", build.getRef(), onError({ context, build, error }));
+        return;
+      }
+    } else {
+      throw new Error("Unimplemented!");
+    }
+    context.log(
+      `(${Date.now() - times[build.getRef()]} ms)`,
+      "✅",
+      build.getRef()
+    );
+    res.end();
   };
 }
 
@@ -277,8 +228,7 @@ export function serve({
     throw new Error("Pass either of buildHandler or onError function");
   }
   if (onError) {
-    const lc = createLifeCycle(onError);
-    buildHandler = (build) => defaultBuildHandler({ build, lc });
+    buildHandler = (build) => defaultBuildHandler({ build, onError });
   }
   if (!buildHandler) throw new Error("Unimplemented!");
   const router = Router();
