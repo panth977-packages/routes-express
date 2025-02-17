@@ -51,7 +51,10 @@ import { z } from "npm:zod@^3.23.x";
  * pathParser('/users/{userId}/devices/{deviceId}') // '/users/:userId/devices/:deviceId';
  * ```
  */
-export function pathParser(path: string, schema?: ROUTES.Http.Build['request']['shape']['path']): string {
+export function pathParser(
+  path: string,
+  schema?: ROUTES.Http.Build["request"]["shape"]["path"]
+): string {
   if (schema) {
     return path.replace(/{([^}]+)}/g, (_, x) => {
       const s = schema.shape[x];
@@ -109,7 +112,8 @@ export function defaultBuildHandler({
 }): RequestHandler {
   return async function (req: Request, res: Response) {
     const initTs = Date.now();
-    const [context, done] = await FUNCTIONS.DefaultContext.Builder.createContext(null);
+    const [context, done] =
+      await FUNCTIONS.DefaultContext.Builder.createContext(null);
     function writeHeaders(headers?: Record<string, string | string[]>) {
       for (const key in headers) {
         res.setHeader(key, headers[key]);
@@ -132,18 +136,18 @@ export function defaultBuildHandler({
     res.on("finish", done);
     context.useState(ExpressStateKey).set({ req, res });
     req.context = context;
-    const reqData = Promise.resolve({
+    const reqData = {
       body: req.body,
       headers: req.headers,
       path: req.params,
       query: req.query,
-    });
+    };
     const middlewares = build.middlewares;
     for (const build of middlewares) {
       if (closed) return;
       context.log("🔄", build.getRef());
       times[build.getRef()] = Date.now();
-      const p = await SettledPromise(build({ context, ...req }));
+      const p = await SettledPromise(build({ context, ...reqData }));
       if (!p.success) return OnErrorResponse(p.error);
       if (closed) return;
       writeHeaders(p.data.headers as never);
@@ -152,7 +156,7 @@ export function defaultBuildHandler({
       if (closed) return;
       context.log("🔄", build.getRef());
       times[build.getRef()] = Date.now();
-      const p = await SettledPromise(build({ context, ...req }));
+      const p = await SettledPromise(build({ context, ...reqData }));
       if (!p.success) return OnErrorResponse(p.error);
       if (closed) return;
       writeHeaders(p.data.headers as never);
