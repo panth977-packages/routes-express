@@ -112,11 +112,12 @@ export function defaultBuildHandler({
 }): RequestHandler {
   return async function (req: Request, res: Response) {
     const initTs = Date.now();
-    const [context, done] =
-      await FUNCTIONS.DefaultContext.Builder.createContext(null);
+    const [context, done] = FUNCTIONS.DefaultContext.Builder.createContext(null);
+    let exposeHeaders = "";
     function writeHeaders(headers?: Record<string, string | string[]>) {
       for (const key in headers) {
         res.setHeader(key, headers[key]);
+        exposeHeaders += `${key}, `;
       }
     }
     function OnErrorResponse(error: unknown) {
@@ -168,6 +169,8 @@ export function defaultBuildHandler({
         ((p.data.headers as Record<string, string> | undefined) ?? {})[
           contentTypeKey ?? ""
         ] ?? "application/json";
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      if (exposeHeaders) res.setHeader("Access-Control-Expose-Headers", exposeHeaders);
       if (contentTypeVal.toLowerCase() !== "application/json") {
         res.status(200).send(p.data.body);
       } else {
@@ -182,11 +185,12 @@ export function defaultBuildHandler({
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Connection", "keep-alive");
-      res.flushHeaders(); // flush the headers to establish SSE with client
+      res.flushHeaders();
       try {
         for await (const resData of build({ context, ...reqData })) {
           if (closed) return;
           res.write(`data: ${JSON.stringify(resData)}\n\n`);
+          res.flush && res.flush();
         }
       } catch (error) {
         if (closed) return;
