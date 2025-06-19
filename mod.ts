@@ -57,10 +57,11 @@ function pathParser<
   }
   return path.replace(/{([^}]+)}/g, ":$1");
 }
-export const ExpressState = F.ContextState.Tree<[Request, Response]>(
-  "Middleware",
-  "create&read",
-);
+export const ExpressState: F.ContextState<[Request, Response]> = F.ContextState
+  .Tree<[Request, Response]>(
+    "Middleware",
+    "create&read",
+  );
 export class ExpressHttpContext extends R.HttpContext {
   static catchErrors?: (error: unknown) => void;
   protected static onError(error: unknown) {
