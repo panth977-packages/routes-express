@@ -6,11 +6,10 @@
  * @example
  * ```ts
  * import createHttpError from "http-errors";
- * import { ROUTES } from "@panth977/routes";
+ * import { R } from "@panth977/routes";
  * import { serve, type onError } from "@panth977/routes-express";
  * import * as routes_ from './routes/index.ts';
  * import express from 'express';
- *
  *
  * function onError(context, build, error) {
  *   if (createHttpError.isHttpError(error)) return error;
@@ -23,43 +22,31 @@
  * } satisfies onError;
  *
  * const app = express();
- * const routes = ROUTES.getEndpointsFromBundle(routes_); // strong type will be lost
+ * const routes = R.getEndpointsFromBundle(routes_); // strong type will be lost
  * app.use(serve(routes, onError));
  * app.listen(8080, () => console.log('Listing...'));
  * ```
  */
 
-import type { ROUTES } from "@panth977/routes";
-import {
-  Router,
-  type Request,
-  type Response,
-  type RequestHandler,
-} from "express";
-import { FUNCTIONS } from "@panth977/functions";
-import { z } from "npm:zod@^3.23.x";
+import { type Request, type Response, Router } from "express";
+import { F } from "@panth977/functions";
+import { R } from "@panth977/routes";
+import { z } from "zod/v4";
 
-/**
- * converts "@panth977/routes" accepted routes path to "express" accepted routes path.
- * @param path
- * @returns
- *
- * @example
- * ```ts
- * pathParser('/health') // '/health';
- * pathParser('/users/{userId}') // '/users/:userId';
- * pathParser('/users/{userId}/devices/{deviceId}') // '/users/:userId/devices/:deviceId';
- * ```
- */
-export function pathParser(
+function pathParser<
+  I extends R.HttpInput,
+  O extends R.HttpOutput,
+  D extends F.FuncDeclaration,
+  Type extends R.HttpTypes,
+>(
   path: string,
-  schema?: ROUTES.Http.Build["request"]["shape"]["path"]
+  schema: R.FuncHttp<I, O, D, Type>["reqPath"],
 ): string {
-  if (schema) {
+  if (schema instanceof z.ZodObject) {
     return path.replace(/{([^}]+)}/g, (_, x) => {
       const s = schema.shape[x];
       if (s instanceof z.ZodEnum) {
-        const enums = Object.keys(s.Enum).join("|");
+        const enums = Object.keys(s.enum).join("|");
         return `:${x}(${enums})`;
       }
       if (s instanceof z.ZodNumber) {
@@ -70,143 +57,171 @@ export function pathParser(
   }
   return path.replace(/{([^}]+)}/g, ":$1");
 }
-
-export type Opt = { req: Request; res: Response };
-
-export const ExpressStateKey: FUNCTIONS.ContextStateKey<Opt> =
-  FUNCTIONS.DefaultContextState.CreateKey({
-    label: "ExpressReqRes",
-    scope: "global",
-  });
-
-export type onError = {
-  (arg: {
-    context: FUNCTIONS.Context;
-    build: ROUTES.Http.Build | ROUTES.Sse.Build | ROUTES.Middleware.Build;
-    error: unknown;
-  }): { status: number; headers: Record<string, string | string[]>; body: any };
-};
-
-function SettledPromise<T>(promise: Promise<T>) {
-  return promise.then(
-    (data) => ({ success: true, data } as const),
-    (error) => ({ success: false, error } as const)
-  );
+export const ExpressState = F.ContextState.Tree<[Request, Response]>(
+  "Middleware",
+  "create&read",
+);
+export class ExpressHttpContext extends R.HttpContext {
+  static catchErrors?: (error: unknown) => void;
+  protected static onError(error: unknown) {
+    if (this.catchErrors === undefined) return;
+    try {
+      this.catchErrors(error);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+  constructor(
+    requestId: string,
+    readonly Request: Request,
+    readonly Response: Response,
+    readonly onError: (
+      err: unknown,
+    ) => {
+      status: number;
+      headers?: Record<string, string[] | string>;
+      message: string;
+    },
+  ) {
+    super(requestId, `${Request.method}, ${Request.url}`);
+    ExpressState.set(this, [Request, Response]);
+  }
+  override get req(): {
+    headers: Record<string, string | string[]>;
+    path: Record<string, string>;
+    query: Record<string, string | string[]>;
+    body: any;
+  } {
+    return {
+      headers: this.Request.headers,
+      path: this.Request.params,
+      query: this.Request.query,
+      body: this.Request.body,
+    };
+  }
+  private exposedHeaders: string[] = [];
+  override setResHeaders(headers: Record<string, string | string[]>): void {
+    for (const key in headers) {
+      this.Response.setHeader(key, headers[key]);
+      this.exposedHeaders.push(key);
+    }
+  }
+  override endWithData(
+    contentType: "application/json" | (string & Record<never, never>),
+    content: unknown,
+  ): void {
+    this.Response.setHeader("Access-Control-Allow-Origin", "*");
+    if (this.exposedHeaders.length) {
+      this.Response.setHeader(
+        "Access-Control-Expose-Headers",
+        this.exposedHeaders.join(", "),
+      );
+    }
+    this.Response.status(200);
+    if (contentType === "application/json") {
+      this.Response.json(content);
+    } else {
+      this.Response.send(content);
+    }
+    this.Response.end();
+  }
+  override endedWithError(err: unknown): void {
+    try {
+      const { message, status, headers } = this.onError(err);
+      if (headers) this.setResHeaders(headers);
+      this.Response.status(status).json(message);
+    } catch (err) {
+      ExpressHttpContext.onError(err);
+      this.Response.status(500).json("Unknown Server Error!");
+    }
+  }
 }
 
-/**
- * convert your route build from "@panth977/routes" to "express" handler function
- * {@link ExpressStateKey} is used to set Express Req, Res
- *
- * @example
- * ```ts
- * app.get('/profile', defaultBuildHandler({build: getProfileRoute, lc: lifecycle}));
- * ```
- */
-export function defaultBuildHandler({
-  build,
-  onError,
-}: {
-  build: ROUTES.Http.Build | ROUTES.Sse.Build;
-  onError: onError;
-}): RequestHandler {
-  return async function (req: Request, res: Response) {
-    const initTs = Date.now();
-    const [context, done] = FUNCTIONS.DefaultContext.Builder.createContext(null);
-    let exposeHeaders = "";
-    function writeHeaders(headers?: Record<string, string | string[]>) {
-      for (const key in headers) {
-        res.setHeader(key, headers[key]);
-        exposeHeaders += `${key}, `;
-      }
+export class ExpressSseContext extends R.SseContext {
+  static catchErrors?: (error: unknown) => void;
+  protected static onError(error: unknown) {
+    if (this.catchErrors === undefined) return;
+    try {
+      this.catchErrors(error);
+    } catch (error) {
+      console.error(error);
     }
-    function OnErrorResponse(error: unknown) {
-      if (closed) return;
-      const err = onError({ context, build, error });
-      context.log("⚠️", build.getRef(), err);
-      writeHeaders(err.headers);
-      res.status(err.status).json(err.body);
-    }
-    let closed = false;
-    const times: Record<string, number> = {};
-    context.log("🔛", req.method, req.url);
-    res.on("close", () => {
-      closed = true;
-      context.log(`(${Date.now() - initTs} ms)`, "🔚", req.method, req.url);
-    });
-    res.on("finish", done);
-    context.useState(ExpressStateKey).set({ req, res });
-    req.context = context;
-    const reqData = {
-      body: req.body,
-      headers: req.headers,
-      path: req.params,
-      query: req.query,
+  }
+  constructor(
+    requestId: string,
+    readonly Request: Request,
+    readonly Response: Response,
+    readonly onError: (err: unknown) => string,
+  ) {
+    super(requestId, `${Request.method}, ${Request.url}`);
+    ExpressState.set(this, [Request, Response]);
+    Response.setHeader("Cache-Control", "no-cache");
+    Response.setHeader("Content-Type", "text/event-stream");
+    Response.setHeader("Access-Control-Allow-Origin", "*");
+    Response.setHeader("Connection", "keep-alive");
+    Response.flushHeaders();
+  }
+  override get req(): {
+    path: Record<string, string>;
+    query: Record<string, string | string[]>;
+  } {
+    return {
+      path: this.Request.params,
+      query: this.Request.query,
     };
-    const middlewares = build.middlewares;
-    for (const build of middlewares) {
-      if (closed) return;
-      context.log("🔄", build.getRef());
-      times[build.getRef()] = Date.now();
-      const p = await SettledPromise(build({ context, ...reqData }));
-      if (!p.success) return OnErrorResponse(p.error);
-      if (closed) return;
-      writeHeaders(p.data.headers as never);
-    }
-    if (build.endpoint === "http") {
-      if (closed) return;
-      context.log("🔄", build.getRef());
-      times[build.getRef()] = Date.now();
-      const p = await SettledPromise(build({ context, ...reqData }));
-      if (!p.success) return OnErrorResponse(p.error);
-      if (closed) return;
-      writeHeaders(p.data.headers as never);
-      if (p.data.body == undefined) return res.status(200).send(null);
-      const contentTypeKey = Object.keys(p.data.headers ?? {}).find(
-        (x) => x.toLowerCase() === "content-type"
-      );
-      const contentTypeVal =
-        ((p.data.headers as Record<string, string> | undefined) ?? {})[
-          contentTypeKey ?? ""
-        ] ?? "application/json";
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      if (exposeHeaders) res.setHeader("Access-Control-Expose-Headers", exposeHeaders);
-      if (contentTypeVal.toLowerCase() !== "application/json") {
-        res.status(200).send(p.data.body);
-      } else {
-        res.status(200).json(p.data.body);
-      }
-    } else if (build.endpoint === "sse") {
-      if (closed) return;
-      const { res } = context.useState(ExpressStateKey).get();
-      context.log("🔄", build.getRef());
-      times[build.getRef()] = Date.now();
-      res.setHeader("Cache-Control", "no-cache");
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Connection", "keep-alive");
-      res.flushHeaders();
-      try {
-        for await (const resData of build({ context, ...reqData })) {
-          if (closed) return;
-          res.write(`data: ${JSON.stringify(resData)}\n\n`);
-          res.flush && res.flush();
-        }
-      } catch (error) {
-        if (closed) return;
-        context.log("⚠️", build.getRef(), onError({ context, build, error }));
-        return;
-      }
-    } else {
-      throw new Error("Unimplemented!");
-    }
-    context.log(
-      `(${Date.now() - times[build.getRef()]} ms)`,
-      "✅",
-      build.getRef()
-    );
-    res.end();
-  };
+  }
+  override send(data: string): void {
+    this.Response.write(`data: ${data}\n\n`);
+    this.Response.flush?.();
+  }
+
+  override endedWithError(err: unknown): void {
+    this.Response.write(`data: ${this.onError(err)}\n\n`);
+    this.Response.flush?.();
+    this.Response.end();
+  }
+
+  override endedWithSuccess(): void {
+    this.Response.end();
+  }
+}
+
+type GenReqId = (req: Request, res: Response) => string;
+export function executeHttpRoute<
+  I extends R.HttpInput,
+  O extends R.HttpOutput,
+  D extends F.FuncDeclaration,
+  Type extends R.HttpTypes,
+>(
+  genRequestId: GenReqId,
+  http: R.FuncHttpExported<I, O, D, Type>,
+  onError: ExpressHttpContext["onError"],
+  req: Request,
+  res: Response,
+): void {
+  const requestId = genRequestId(req, res);
+  const context = new ExpressHttpContext(requestId, req, res, onError);
+  const executor = new R.HttpExecutor(context, http);
+  res.on("close", executor.cancel.bind(executor));
+  executor.start();
+}
+export function executeSseRoute<
+  I extends R.SseInput,
+  O extends R.SseOutput,
+  D extends F.FuncDeclaration,
+  Type extends R.SseTypes,
+>(
+  genRequestId: GenReqId,
+  sse: R.FuncSseExported<I, O, D, Type>,
+  onError: ExpressSseContext["onError"],
+  req: Request,
+  res: Response,
+): void {
+  const requestId = genRequestId(req, res);
+  const context = new ExpressSseContext(requestId, req, res, onError);
+  const executor = new R.SseExecutor(context, sse);
+  res.on("close", executor.cancel.bind(executor));
+  executor.start();
 }
 
 /**
@@ -221,34 +236,44 @@ export function defaultBuildHandler({
  * app.use('/v1', serve({bundle: bundledRoutes, buildHandler: (build) => defaultBuildHandler({build, lc: lifecycle})}));
  * ```
  */
-export function serve({
-  buildHandler,
-  bundle,
-  onError,
-}: {
-  bundle: Record<string, ROUTES.Http.Build | ROUTES.Sse.Build>;
-  buildHandler?: (
-    build: ROUTES.Http.Build | ROUTES.Sse.Build
-  ) => RequestHandler;
-  onError?: onError;
+export function serve({ bundle, genRequestId, onHttpError, onSseError }: {
+  genRequestId: GenReqId;
+  bundle: Record<string, R.EndpointBuild>;
+  onHttpError?: ExpressHttpContext["onError"];
+  onSseError?: ExpressSseContext["onError"];
 }): Router {
-  if (buildHandler && onError) {
-    throw new Error("Pass either of buildHandler or onError function");
-  }
-  if (onError) {
-    buildHandler = (build) => defaultBuildHandler({ build, onError });
-  }
-  if (!buildHandler) throw new Error("Unimplemented!");
   const router = Router();
-  for (const build of Object.values(bundle).sort(
-    (x, y) => x.docsOrder - y.docsOrder
-  )) {
-    for (const path of build.path) {
-      for (const method of build.method) {
-        router[method](
-          pathParser(path, build.request.shape.path),
-          buildHandler(build)
-        );
+  for (
+    const build of Object.values(bundle)
+      .sort((x, y) => x.node.docsOrder - y.node.docsOrder)
+  ) {
+    let route;
+    if (build.node instanceof R.FuncHttp) {
+      if (!onHttpError) {
+        throw new Error("Need [onHttpError] for the http routes.");
+      }
+      route = executeHttpRoute.bind(
+        null,
+        genRequestId,
+        build as any,
+        onHttpError,
+      );
+    } else if (build.node instanceof R.FuncSse) {
+      if (!onSseError) {
+        throw new Error("Need [onSseError] for the http routes.");
+      }
+      route = executeSseRoute.bind(
+        null,
+        genRequestId,
+        build as any,
+        onSseError,
+      );
+    } else {
+      throw new Error("Unknown Build type found.");
+    }
+    for (const path of build.node.paths) {
+      for (const method of build.node.methods) {
+        router[method](pathParser(path, build.node.reqPath), route);
       }
     }
   }
