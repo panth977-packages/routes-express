@@ -63,12 +63,9 @@ export const ExpressState: F.ContextState<[Request, Response]> = F.ContextState
     "create&read",
   );
 export class ExpressHttpContext extends R.HttpContext {
-  static catchErrors?: (error: unknown) => void;
+  static debug = false;
   protected static onError(error: unknown) {
-    if (this.catchErrors === undefined) return;
-    try {
-      this.catchErrors(error);
-    } catch (error) {
+    if (this.debug) {
       console.error(error);
     }
   }
@@ -139,12 +136,9 @@ export class ExpressHttpContext extends R.HttpContext {
 }
 
 export class ExpressSseContext extends R.SseContext {
-  static catchErrors?: (error: unknown) => void;
+  static debug = false;
   protected static onError(error: unknown) {
-    if (this.catchErrors === undefined) return;
-    try {
-      this.catchErrors(error);
-    } catch (error) {
+    if (this.debug) {
       console.error(error);
     }
   }
