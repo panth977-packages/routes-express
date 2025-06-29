@@ -38,10 +38,7 @@ function pathParser<
   O extends R.HttpOutput,
   D extends F.FuncDeclaration,
   Type extends R.HttpTypes,
->(
-  path: string,
-  schema: R.FuncHttp<I, O, D, Type>["reqPath"],
-): string {
+>(path: string, schema: R.FuncHttp<I, O, D, Type>["reqPath"]): string {
   if (schema instanceof z.ZodObject) {
     return path.replace(/{([^}]+)}/g, (_, x) => {
       const s = schema.shape[x];
@@ -57,11 +54,8 @@ function pathParser<
   }
   return path.replace(/{([^}]+)}/g, ":$1");
 }
-export const ExpressState: F.ContextState<[Request, Response]> = F.ContextState
-  .Tree<[Request, Response]>(
-    "Middleware",
-    "create&read",
-  );
+export const ExpressState: F.ContextState<[Request, Response]> =
+  F.ContextState.Tree<[Request, Response]>("Middleware", "create&read");
 export class ExpressHttpContext extends R.HttpContext {
   static debug = false;
   protected static onError(error: unknown) {
@@ -73,9 +67,7 @@ export class ExpressHttpContext extends R.HttpContext {
     requestId: string,
     readonly Request: Request,
     readonly Response: Response,
-    readonly onError: (
-      err: unknown,
-    ) => {
+    readonly onError: (err: unknown) => {
       status: number;
       headers?: Record<string, string[] | string>;
       message: string;
@@ -191,11 +183,13 @@ export function executeHttpRoute<
   genRequestId: GenReqId,
   http: R.FuncHttpExported<I, O, D, Type>,
   onError: ExpressHttpContext["onError"],
+  onContextInit: onContextInit,
   req: Request,
   res: Response,
 ): void {
   const requestId = genRequestId(req, res);
   const context = new ExpressHttpContext(requestId, req, res, onError);
+  onContextInit(context);
   const executor = new R.HttpExecutor(context, http);
   res.on("close", executor.cancel.bind(executor));
   executor.start();
@@ -209,16 +203,18 @@ export function executeSseRoute<
   genRequestId: GenReqId,
   sse: R.FuncSseExported<I, O, D, Type>,
   onError: ExpressSseContext["onError"],
+  onContextInit: onContextInit,
   req: Request,
   res: Response,
 ): void {
   const requestId = genRequestId(req, res);
   const context = new ExpressSseContext(requestId, req, res, onError);
+  onContextInit(context);
   const executor = new R.SseExecutor(context, sse);
   res.on("close", executor.cancel.bind(executor));
   executor.start();
 }
-
+type onContextInit = (c: ExpressSseContext | ExpressHttpContext) => void;
 /**
  * creates a "express" Router that serves all the given endpoints bundle
  * @param bundle
@@ -231,18 +227,24 @@ export function executeSseRoute<
  * app.use('/v1', serve({bundle: bundledRoutes, buildHandler: (build) => defaultBuildHandler({build, lc: lifecycle})}));
  * ```
  */
-export function serve({ bundle, genRequestId, onHttpError, onSseError }: {
+export function serve({
+  bundle,
+  genRequestId,
+  onHttpError,
+  onSseError,
+  onContextInit,
+}: {
   genRequestId: GenReqId;
   bundle: Record<string, R.EndpointBuild>;
   onHttpError?: ExpressHttpContext["onError"];
   onSseError?: ExpressSseContext["onError"];
+  onContextInit: onContextInit;
 }): Router {
   const router = Router();
-  for (
-    const build of Object.values(bundle)
-      .sort((x, y) => x.node.docsOrder - y.node.docsOrder)
-  ) {
-    let route;
+  for (const build of Object.values(bundle).sort(
+    (x, y) => x.node.docsOrder - y.node.docsOrder,
+  )) {
+    let route: (req: Request, res: Response) => void;
     if (build.node instanceof R.FuncHttp) {
       if (!onHttpError) {
         throw new Error("Need [onHttpError] for the http routes.");
@@ -252,6 +254,7 @@ export function serve({ bundle, genRequestId, onHttpError, onSseError }: {
         genRequestId,
         build as any,
         onHttpError,
+        onContextInit,
       );
     } else if (build.node instanceof R.FuncSse) {
       if (!onSseError) {
@@ -262,6 +265,7 @@ export function serve({ bundle, genRequestId, onHttpError, onSseError }: {
         genRequestId,
         build as any,
         onSseError,
+        onContextInit,
       );
     } else {
       throw new Error("Unknown Build type found.");
