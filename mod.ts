@@ -36,9 +36,8 @@ import { z } from "zod/v4";
 function pathParser<
   I extends R.HttpInput,
   O extends R.HttpOutput,
-  D extends F.FuncDeclaration,
   Type extends R.HttpTypes,
->(path: string, schema: R.FuncHttp<I, O, D, Type>["reqPath"]): string {
+>(path: string, schema: R.FuncHttp<I, O, Type>["reqPath"]): string {
   if (schema instanceof z.ZodObject) {
     return path.replace(/{([^}]+)}/g, (_, x) => {
       const s = schema.shape[x];
@@ -54,8 +53,8 @@ function pathParser<
   }
   return path.replace(/{([^}]+)}/g, ":$1");
 }
-export const ExpressState: F.ContextState<[Request, Response]> =
-  F.ContextState.Tree<[Request, Response]>("Middleware", "create&read");
+export const ExpressState: F.ContextState<[Request, Response]> = F.ContextState
+  .Tree<[Request, Response]>("Middleware", "create&read");
 export class ExpressHttpContext extends R.HttpContext {
   static debug = false;
   protected static onError(error: unknown) {
@@ -177,11 +176,10 @@ type GenReqId = (req: Request, res: Response) => string;
 export function executeHttpRoute<
   I extends R.HttpInput,
   O extends R.HttpOutput,
-  D extends F.FuncDeclaration,
   Type extends R.HttpTypes,
 >(
   genRequestId: GenReqId,
-  http: R.FuncHttpExported<I, O, D, Type>,
+  http: R.FuncHttpExported<I, O, Type>,
   onError: ExpressHttpContext["onError"],
   onContextInit: onContextInit,
   req: Request,
@@ -197,11 +195,10 @@ export function executeHttpRoute<
 export function executeSseRoute<
   I extends R.SseInput,
   O extends R.SseOutput,
-  D extends F.FuncDeclaration,
   Type extends R.SseTypes,
 >(
   genRequestId: GenReqId,
-  sse: R.FuncSseExported<I, O, D, Type>,
+  sse: R.FuncSseExported<I, O, Type>,
   onError: ExpressSseContext["onError"],
   onContextInit: onContextInit,
   req: Request,
@@ -241,9 +238,11 @@ export function serve({
   onContextInit: onContextInit;
 }): Router {
   const router = Router();
-  for (const build of Object.values(bundle).sort(
-    (x, y) => x.node.docsOrder - y.node.docsOrder,
-  )) {
+  for (
+    const build of Object.values(bundle).sort(
+      (x, y) => x.node.docsOrder - y.node.docsOrder,
+    )
+  ) {
     let route: (req: Request, res: Response) => void;
     if (build.node instanceof R.FuncHttp) {
       if (!onHttpError) {
