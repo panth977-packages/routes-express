@@ -1,12 +1,12 @@
 {
   "version": "4",
   "specifiers": {
-    "jsr:@panth977/functions@1": "1.0.24",
-    "jsr:@panth977/functions@^1.0.24": "1.0.24",
-    "jsr:@panth977/routes@^1.0.11": "1.0.11",
-    "jsr:@panth977/tools@1": "1.0.19",
+    "jsr:@panth977/functions@2": "2.0.0",
+    "jsr:@panth977/routes@2": "2.0.0",
+    "jsr:@panth977/tools@2": "2.0.0",
     "npm:express@^5.1.0": "5.1.0",
-    "npm:zod@^3.25.67": "3.25.67"
+    "npm:zod-openapi@^4.2.4": "4.2.4_zod@3.25.76",
+    "npm:zod@^3.25.76": "3.25.76"
   },
   "jsr": {
     "@panth977/functions@1.0.14": {
@@ -15,22 +15,23 @@
         "npm:zod"
       ]
     },
-    "@panth977/functions@1.0.24": {
-      "integrity": "025f098108c8cbdd8c075735e1701ee13feb156b58299fa31a8bffbdbba99943",
+    "@panth977/functions@2.0.0": {
+      "integrity": "d50822df8a161cab2fabe574d63bf5d861b06fe62664e8edc241dff314cceef6",
       "dependencies": [
         "jsr:@panth977/tools",
         "npm:zod"
       ]
     },
-    "@panth977/routes@1.0.11": {
-      "integrity": "170caa5b54991257dfeb6faadc7a8808941fb1762ce2f2e7f9dcf864e000ea25",
+    "@panth977/routes@2.0.0": {
+      "integrity": "2c9205beb826ecb52a72b7aec5edf023e6b66ffb02656a3349269149671d6b38",
       "dependencies": [
-        "jsr:@panth977/functions@1",
-        "npm:zod"
+        "jsr:@panth977/functions",
+        "npm:zod",
+        "npm:zod-openapi"
       ]
     },
-    "@panth977/tools@1.0.19": {
-      "integrity": "4a833a9283ab58edf49d0d1667229432da204ca6f84ac5261dbefb9bfd4d54d1",
+    "@panth977/tools@2.0.0": {
+      "integrity": "3ea9418cfdc76b01258fdf9735dd6be19ffc2bc39c9da6036c71f1a85026921f",
       "dependencies": [
         "npm:zod"
       ]
@@ -418,17 +419,23 @@
     "wrappy@1.0.2": {
       "integrity": "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ=="
     },
-    "zod@3.25.67": {
-      "integrity": "sha512-idA2YXwpCdqUSKRCACDE6ItZD9TZzy3OZMtpfLoh6oPR47lipysRrJfjzMqFxQ3uJuUPyUeWe1r9vLH33xO/Qw=="
+    "zod-openapi@4.2.4_zod@3.25.76": {
+      "integrity": "sha512-tsrQpbpqFCXqVXUzi3TPwFhuMtLN3oNZobOtYnK6/5VkXsNdnIgyNr4r8no4wmYluaxzN3F7iS+8xCW8BmMQ8g==",
+      "dependencies": [
+        "zod"
+      ]
+    },
+    "zod@3.25.76": {
+      "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="
     }
   },
   "workspace": {
     "dependencies": [
-      "jsr:@panth977/functions@^1.0.24",
-      "jsr:@panth977/routes@^1.0.11",
-      "jsr:@panth977/tools@1",
+      "jsr:@panth977/functions@2",
+      "jsr:@panth977/routes@2",
+      "jsr:@panth977/tools@2",
       "npm:express@^5.1.0",
-      "npm:zod@^3.25.67"
+      "npm:zod@^3.25.76"
     ]
   }
 }

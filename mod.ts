@@ -31,7 +31,7 @@
 import { type Request, type Response, Router } from "express";
 import { F } from "@panth977/functions";
 import { R } from "@panth977/routes";
-import { z } from "zod/v4";
+import { z } from "zod";
 
 function pathParser<
   I extends R.HttpInput,
