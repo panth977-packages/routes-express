@@ -13,8 +13,8 @@
     }
   },
   "imports": {
-    "@panth977/functions": "jsr:@panth977/functions@^2.0.0",
-    "@panth977/routes": "jsr:@panth977/routes@^2.0.0",
+    "@panth977/functions": "jsr:@panth977/functions@^2.0.1",
+    "@panth977/routes": "jsr:@panth977/routes@^2.0.1",
     "@panth977/tools": "jsr:@panth977/tools@^2.0.0",
     "express": "npm:express@^5.1.0",
     "zod": "npm:zod@^3.25.76"
