@@ -66,7 +66,7 @@ export class ExpressHttpContext extends R.HttpContext {
     requestId: string,
     readonly Request: Request,
     readonly Response: Response,
-    readonly onError: (err: unknown) => {
+    readonly onError: (context: ExpressHttpContext, err: unknown) => {
       status: number;
       headers?: Record<string, string[] | string>;
       message: string;
@@ -116,7 +116,7 @@ export class ExpressHttpContext extends R.HttpContext {
   }
   override endedWithError(err: unknown): void {
     try {
-      const { message, status, headers } = this.onError(err);
+      const { message, status, headers } = this.onError(this, err);
       if (headers) this.setResHeaders(headers);
       this.Response.status(status).json(message);
     } catch (err) {
@@ -137,7 +137,7 @@ export class ExpressSseContext extends R.SseContext {
     requestId: string,
     readonly Request: Request,
     readonly Response: Response,
-    readonly onError: (err: unknown) => string,
+    readonly onError: (context: ExpressSseContext, err: unknown) => string,
   ) {
     super(requestId, `${Request.method}, ${Request.url}`);
     ExpressState.set(this, [Request, Response]);
@@ -162,7 +162,7 @@ export class ExpressSseContext extends R.SseContext {
   }
 
   override endedWithError(err: unknown): void {
-    this.Response.write(`data: ${this.onError(err)}\n\n`);
+    this.Response.write(`data: ${this.onError(this, err)}\n\n`);
     this.Response.flush?.();
     this.Response.end();
   }
@@ -172,22 +172,19 @@ export class ExpressSseContext extends R.SseContext {
   }
 }
 
-type GenReqId = (req: Request, res: Response) => string;
+type GenHttpContext = (req: Request, res: Response) => ExpressHttpContext;
+type GenSseContext = (req: Request, res: Response) => ExpressSseContext;
 export function executeHttpRoute<
   I extends R.HttpInput,
   O extends R.HttpOutput,
   Type extends R.HttpTypes,
 >(
-  genRequestId: GenReqId,
+  genContext: GenHttpContext,
   http: R.FuncHttpExported<I, O, Type>,
-  onError: ExpressHttpContext["onError"],
-  onContextInit: onContextInit,
   req: Request,
   res: Response,
 ): void {
-  const requestId = genRequestId(req, res);
-  const context = new ExpressHttpContext(requestId, req, res, onError);
-  onContextInit(context);
+  const context = genContext(req, res);
   const executor = new R.HttpExecutor(context, http);
   res.on("close", executor.cancel.bind(executor));
   executor.start();
@@ -197,21 +194,16 @@ export function executeSseRoute<
   O extends R.SseOutput,
   Type extends R.SseTypes,
 >(
-  genRequestId: GenReqId,
+  genContext: GenSseContext,
   sse: R.FuncSseExported<I, O, Type>,
-  onError: ExpressSseContext["onError"],
-  onContextInit: onContextInit,
   req: Request,
   res: Response,
 ): void {
-  const requestId = genRequestId(req, res);
-  const context = new ExpressSseContext(requestId, req, res, onError);
-  onContextInit(context);
+  const context = genContext(req, res);
   const executor = new R.SseExecutor(context, sse);
   res.on("close", executor.cancel.bind(executor));
   executor.start();
 }
-type onContextInit = (c: ExpressSseContext | ExpressHttpContext) => void;
 /**
  * creates a "express" Router that serves all the given endpoints bundle
  * @param bundle
@@ -226,16 +218,12 @@ type onContextInit = (c: ExpressSseContext | ExpressHttpContext) => void;
  */
 export function serve({
   bundle,
-  genRequestId,
-  onHttpError,
-  onSseError,
-  onContextInit,
+  onHttpReq,
+  onSseReq,
 }: {
-  genRequestId: GenReqId;
   bundle: Record<string, R.EndpointBuild>;
-  onHttpError?: ExpressHttpContext["onError"];
-  onSseError?: ExpressSseContext["onError"];
-  onContextInit: onContextInit;
+  onHttpReq?: GenHttpContext;
+  onSseReq?: GenSseContext;
 }): Router {
   const router = Router();
   for (
@@ -245,27 +233,15 @@ export function serve({
   ) {
     let route: (req: Request, res: Response) => void;
     if (build.node instanceof R.FuncHttp) {
-      if (!onHttpError) {
-        throw new Error("Need [onHttpError] for the http routes.");
+      if (!onHttpReq) {
+        throw new Error("Need [onHttpReq] for the http routes.");
       }
-      route = executeHttpRoute.bind(
-        null,
-        genRequestId,
-        build as any,
-        onHttpError,
-        onContextInit,
-      );
+      route = executeHttpRoute.bind(null, onHttpReq, build as any);
     } else if (build.node instanceof R.FuncSse) {
-      if (!onSseError) {
-        throw new Error("Need [onSseError] for the http routes.");
+      if (!onSseReq) {
+        throw new Error("Need [onSseReq] for the http routes.");
       }
-      route = executeSseRoute.bind(
-        null,
-        genRequestId,
-        build as any,
-        onSseError,
-        onContextInit,
-      );
+      route = executeSseRoute.bind(null, onSseReq, build as any);
     } else {
       throw new Error("Unknown Build type found.");
     }
