@@ -433,7 +433,6 @@
     "dependencies": [
       "jsr:@panth977/functions@^2.0.5",
       "jsr:@panth977/routes@^2.0.4",
-      "jsr:@panth977/tools@2",
       "npm:express@^5.1.0",
       "npm:zod@^3.25.76"
     ]
